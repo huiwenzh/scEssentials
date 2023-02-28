@@ -24,5 +24,11 @@ Single-cell transcriptomic atlases:
   
   2. Tabula-Sapiens: A multiple-organ, single-cell transcriptomic atlas of humans. [The Tabula Sapiens Consortium](https://pubmed.ncbi.nlm.nih.gov/35549404/)
   
+Human gene damage index that measured gene mutation frequency:
+  
+  1. The human gene damage index as a gene-level approach to prioritizing exome variants. [Itan et al.](https://www.pnas.org/doi/10.1073/pnas.1518646112)
 
+Single-cell mouse chromatin accessibility altas:
+  
+  1.  A Single-Cell Atlas of In Vivo Mammalian Chromatin Accessibility. [Cusanovich et al.] (https://pubmed.ncbi.nlm.nih.gov/30078704/)
  
