@@ -1,5 +1,6 @@
 # scEssentials
-A set of essential genes that is reliable to use in single-cell research, which is also implemented in our coexpression methods [scRoGG](https://github.com/huiwenzh/scRoGG/tree/master/R)  as reference geneset.
+A set of essential genes that is reliable to use in single-cell research, which is also implemented in our coexpression methods [scRoGG](https://github.com/huiwenzh/scRoGG/tree/master/R)  as reference geneset. The full list of scEssentials can be found in [*Data* folder](https://github.com/huiwenzh/scEssentials/tree/main/Data).
+
 ## Outline
 We use large-scale benchmarking datasets as well as the mouse and human scRNA-seq atlases to refine robust essential genes and characterise their transcriptomic profiles across different cell types, denoted as scEssentials. scEssentials identified for both the mouse and human models are consistently high in expression and exhibit limited variably across more than 60 cell types. We also demonstrate a substantial number of significantly correlated gene pairs within scEssentials, which produce densely connected coexpression networks with functional annotation. Furthermore, we showed high frequencies of scEssentials across 200 pathways. Finally, we develop a score to quantify the relative essentiality of genes within scEssentials, which further validates with significant association with gene mutation frequency and chromatin accessibility. 
 
