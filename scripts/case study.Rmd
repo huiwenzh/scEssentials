@@ -1,0 +1,361 @@
+---
+title: "Case study invariate expression of essential genes during aging"
+output: html_notebook
+---
+ 
+
+```{r prepare normalisation}
+library(Seurat)
+dat = readRDS('full_TMS_seurat.rds')
+dat = subset(dat, subset=age!='21m')# remove 21m as not enough samples 
+info <- as.data.frame(table(dat$tissue, dat$cell_ontology_class))
+info.sub <- info[info$Freq>100,]
+
+tissue_list <- list()
+for (tissue in unique(info.sub$Var1)){
+  cell.type <- droplevels(info.sub[info.sub$Var1==tissue,2])
+  tissue_list[[tissue]] <- dat [,dat $tissue==tissue & dat $cell_ontology_class %in% cell.type]
+  
+}
+
+celltype_list_all <- list()
+for (tissue in names(tissue_list)){
+  for (type in unique(tissue_list[[tissue]]$cell_ontology_class)){
+    name <- paste(tissue,type,sep='.' )
+    dat1 <- subset(tissue_list[[tissue]],subset=cell_ontology_class==type)
+    celltype_list_all[[name]] <- dat1 
+  }
+}
+
+
+```
+
+
+```{r exctact the essential genes}
+scEssential_mmu  <- readRDS("D:/PhD/Essential genes/Revisions for thesis/revised figures/scEssential_mmu.rds") 
+celltype_es <- lapply(celltype_list_all,function(x){
+  dat = subset(x, features = rownames(scEssential_mmu))
+})
+
+```
+
+```{r are the gene expression changed during aging?}
+# ANOVA test first 
+celltype_anova <- lapply(celltype_es, function(dat){
+  group = dat$age
+  if (as.data.frame(table(group))$Freq>20){
+    x_all= as.matrix(dat@assays$RNA@counts)
+    kl = apply(x_all,1, function(xx){
+      xx=melt(xx)
+      xx$age <- as.factor(group)
+      anova_one_way <- aov(value~age, data = xx)
+      summary(anova_one_way)[[1]][["Pr(>F)"]][1]
+    })
+  }
+})
+print('done')
+# multiple adjustment 
+celltype_anova_adj <- lapply(celltype_anova,p.adjust)
+
+saveRDS(celltype_anova_adj,"celltype_anova_adj.rds")
+
+celltype_anova_sig <- sapply(celltype_anova_adj,function(s){sum(s<0.05, na.rm = T)})
+
+```
+
+```{r maybe mixed model can do the same thing?}
+# glm with Gaussian links, set 3m as reference 
+# subset the data
+celltype_es1 = lapply(celltype_es, function(x){ #more than 20 cells per age group,
+   if (sum(x$age=='3m')>20 & sum(x$age=='18m')>20& sum(x$age=='21m')>20){
+     x
+   }
+   }) # do not run
+dat_es <- merge(x=celltype_es[[1]],y=celltype_es[2:137] )
+# check one first 
+names <- c()
+for (tissue in names(tissue_list)){
+  for (type in unique(tissue_list[[tissue]]$cell_ontology_class)){
+    name <- paste(tissue,type,sep='.' )
+    names <- c(names,name)
+
+  }
+}
+meta <- cbind(dat_es$age,dat_es$sex)
+N_celltypes <- sapply(celltype_es, function(y)dim(y)[2])
+meta <- cbind(meta,rep(names, N_celltypes))
+library(lme4)
+library(mixedup)
+model_list <- list() 
+for (genei in rownames(dat_es)){
+  dat_max = subset(dat_es, features=genei)
+  dat_max.1 = as.matrix(dat_max@assays$RNA@counts)
+  
+  dat.df = cbind(as.numeric(dat_max.1[1,]),meta)
+  colnames(dat.df) <- c("gene",'age','sex','celltype')
+  dat.df <- as.data.frame(dat.df)
+  dat.df$age <- factor(dat.df$age, levels=c("3m","18m","24m"))
+  dat.df$sex <- factor(dat.df$sex, levels=c("male","female"))
+  g_model = lmer( as.numeric(gene) ~ age + sex +(1|celltype), data = dat.df)
+  model_list[[genei]] <- g_model
+}
+
+model_list1 <- list() 
+for (genei in rownames(dat_es)){
+  dat_max = subset(dat_es, features=genei)
+  dat_max.1 = as.matrix(dat_max@assays$RNA@counts)
+  
+  dat.df = cbind(as.numeric(dat_max.1[1,]),meta)
+  colnames(dat.df) <- c("gene",'age','sex','celltype')
+  dat.df <- as.data.frame(dat.df)
+  dat.df$age <- factor(dat.df$age, levels=c("3m","18m","24m"))
+  dat.df$sex <- factor(dat.df$sex, levels=c("male","female"))
+  g_model1 = lm( as.numeric(gene) ~ age + sex, data = dat.df)
+  model_list1[[genei]] <- g_model1
+}
+
+data_list <- list() 
+for (genei in rownames(dat_es)){
+  dat_max = subset(dat_es, features=genei)
+  dat_max.1 = as.matrix(dat_max@assays$RNA@counts)
+  
+  dat.df = cbind(as.numeric(dat_max.1[1,]),meta)
+  colnames(dat.df) <- c("gene",'age','sex','celltype')
+  dat.df <- as.data.frame(dat.df)
+  dat.df$age <- factor(dat.df$age, levels=c("3m","18m","24m"))
+  dat.df$sex <- factor(dat.df$sex, levels=c("male","female"))
+  data_list[[genei]] <- dat.df
+
+}
+
+ 
+```
+
+```{r get sig coeffcients}
+library(lmerTest)
+model_list <- readRDS("mixed_models_per_gene.rds")
+
+# what are the genes overall significantly changed during ageing?
+fixed_p <- sapply(model_list, function(mm){
+  summary(mm)$coefficients[2:4,5]
+})
+fixed_p <- t(fixed_p)
+fixed_p_adj <- cbind(p.adjust(fixed_p[,1]),p.adjust(fixed_p[,2]),p.adjust(fixed_p[,3]))
+colnames(fixed_p_adj) <- colnames(fixed_p)
+
+no_change <- fixed_p_adj[fixed_p[,1]>0.05|fixed_p[,2]>0.05,]
+sum(fixed_p_adj[,3]<0.05)
+
+
+rand(model_list[[1]])
+
+```
+
+```{r glm modelling }
+glm_list <- list() 
+for (genei in rownames(dat_es)[1001:1060]){
+  dat_max = subset(dat_es, features=genei)
+  dat_max.1 = as.matrix(dat_max@assays$RNA@counts)
+  
+  dat.df = cbind(as.numeric(dat_max.1[1,]),meta)
+  colnames(dat.df) <- c("gene",'age','sex','celltype')
+  dat.df <- as.data.frame(dat.df)
+  dat.df$age <- factor(dat.df$age, levels=c("3m","18m","24m"))
+  dat.df$sex <- factor(dat.df$sex, levels=c("male","female"))
+  glm_model = glm( as.numeric(gene) ~  sex + age*celltype, data = dat.df)
+  glm_list[[genei]] <- glm_model
+}
+#saveRDS(glm_list,'glm_list_20.rds')
+
+#load all the rds file
+for (n in  20){
+  name <- paste0("glm_list_",n,".rds")
+  a <- readRDS(name)
+# genes no changing in either groups
+  no_change_gene  <- c()
+  change_gene  <- c()
+  t=(n-1)*50
+  for (i in 1:50){
+    fit <- a[[i]]
+    if (coef(summary(fit))[,4][3]<0.05 &coef(summary(fit))[,4][4]<0.05 ){
+    change_gene  <- c(change_gene , rownames(dat_es)[i+t])
+  }
+    else{no_change_gene <- c(no_change_gene,rownames(dat_es)[i+t]) }
+  }
+  filename = paste0('no_change_gene',n,'.rds')
+  filename1 = paste0('change_gene',n,'.rds')
+  #saveRDS(no_change_gene,filename)
+  #saveRDS(change_gene,filename1)
+  #print(n)
+}
+
+# genes are changing overall ##
+library(dplyr)
+# no_change_genes <- unlist( sapply( ls(patt="no_change_gene"), get) )
+no_change_genes <- unname(no_change_genes)
+
+no_change_genes <- rownames(scEssential_mmu)[rownames(scEssential_mmu)%in%no_change_genes]
+
+no_change_genes_ES <- scEssential_mmu$ES_score[rownames(scEssential_mmu)%in%no_change_genes]
+names(no_change_genes_ES) <- rownames(scEssential_mmu)[rownames(scEssential_mmu)%in%no_change_genes]
+  
+change_genes <- setdiff( rownames(scEssential_mmu),no_change_genes)
+change_genes_ES <- scEssential_mmu[rownames(scEssential_mmu)%in%change_genes,]
+names(change_genes_ES) <-   rownames(scEssential_mmu)[rownames(scEssential_mmu)%in%change_genes]
+length(change_genes)/nrow(scEssential_mmu)
+
+
+```
+
+```{r understand the genes}
+library(clusterProfiler)
+eg_changed <-bitr(change_genes, fromType="SYMBOL", toType="ENTREZID", OrgDb="org.Mm.eg.db") 
+ego_changed <- enrichGO(gene         = eg_changed$ENTREZID,
+                 OrgDb         = org.Mm.eg.db,
+                 keyType       = 'ENTREZID',
+                 ont           = "BP",
+                 pAdjustMethod = "BH",
+                 pvalueCutoff  = 0.01,
+                 qvalueCutoff  = 0.05)
+library(ggplot2)
+dotplot(ego_changed)+ggtitle('Enriched pathways for changed scEssentials in ageing')
+R.utils::setOption("clusterProfiler.download.method","auto")
+kk_changed <- enrichKEGG(gene         = eg_changed$ENTREZID,
+                 organism     = "mmu",
+                 pvalueCutoff = 0.05)
+barplot(kk_changed)
+
+
+```
+
+```{r understanding interaction term}
+#load all the rds file
+# for (n in  11:20){
+#   name <- paste0("TMS_dataset/glm_list_",n,".rds")
+#   a <- readRDS(name)
+# # changed cell types
+#   change_celltype  <- list()
+#   t=(n-1)*50
+#   for (i in 1:50){
+#     fit <- a[[i]]
+#     p_all <- coef(summary(fit))[,4][141:406]
+#     p_all <- p.adjust(p_all)
+#     change_celltype[[mmu_es$x[i+t]]] <- p_all[p_all<0.05]
+#     
+#   }
+#   filename2 = paste0('TMS_dataset/change_celltype',n,'.rds')
+#  
+#   #saveRDS(change_celltype,filename2)
+#   #print(n)
+# }
+# 
+# summarized only non-changing genes together
+
+# what are the numbers?
+# use no_change_genes_list to 
+number_celltype1 <- sapply(change_celltype1[intersect(no_change_genes,names(change_celltype1))], length)
+number_celltype2 <- sapply(change_celltype2[intersect(no_change_genes,names(change_celltype2))], length)
+number_celltype3 <- sapply(change_celltype3[intersect(no_change_genes,names(change_celltype3))], length)
+number_celltype4 <- sapply(change_celltype4[intersect(no_change_genes,names(change_celltype4))], length)
+number_celltype5 <- sapply(change_celltype5[intersect(no_change_genes,names(change_celltype5))], length)
+number_celltype6 <- sapply(change_celltype6[intersect(no_change_genes,names(change_celltype6))], length)
+number_celltype7 <- sapply(change_celltype7[intersect(no_change_genes,names(change_celltype7))], length)
+number_celltype8 <- sapply(change_celltype8[intersect(no_change_genes,names(change_celltype8))], length)
+number_celltype9 <- sapply(change_celltype9[intersect(no_change_genes,names(change_celltype9))], length)
+number_celltype10 <- sapply(change_celltype10[intersect(no_change_genes,names(change_celltype10))], length)
+number_celltype11 <- sapply(change_celltype11[intersect(no_change_genes,names(change_celltype11))], length)
+number_celltype12 <- sapply(change_celltype12[intersect(no_change_genes,names(change_celltype12))], length)
+number_celltype13 <- sapply(change_celltype13[intersect(no_change_genes,names(change_celltype13))], length)
+number_celltype14 <- sapply(change_celltype14[intersect(no_change_genes,names(change_celltype14))], length)
+number_celltype15 <- sapply(change_celltype15[intersect(no_change_genes,names(change_celltype15))], length)
+number_celltype16 <- sapply(change_celltype16[intersect(no_change_genes,names(change_celltype16))], length)
+number_celltype17 <- sapply(change_celltype17[intersect(no_change_genes,names(change_celltype17))], length)
+number_celltype18 <- sapply(change_celltype18[intersect(no_change_genes,names(change_celltype18))], length)
+number_celltype19 <- sapply(change_celltype19[intersect(no_change_genes,names(change_celltype19))], length)
+number_celltype20 <- sapply(change_celltype20[intersect(no_change_genes,names(change_celltype20))], length)
+#number_celltypes <-  unlist(sapply( ls(patt="number_celltype"), get) )
+
+barplot(number_celltypes)
+number_celltypes <- as.data.frame(number_celltypes)
+
+number_celltypes$genename <- unname(sapply(rownames(number_celltypes),function(a)str_split(a,'\\.')[[1]][2]))
+library(ggplot2)
+# updates Feb 2023
+ 
+ggplot(number_celltypes, aes(x=number_celltypes)) + 
+ # geom_histogram(aes(y=..density..), colour="black", fill="white", bins = 50)+
+ geom_density(alpha=.7, fill="#FF6846")+ theme_classic()+xlab('Number of significant cell types')
+mean(number_celltypes $number_celltypes)
+ggplot(number_celltypes, aes(x=number_celltypes)) + 
+  geom_histogram(aes(y=..density..), colour="black", fill="white", bins = 50)+
+ geom_density(alpha=.7, fill="#FF6846")+ theme_classic()+xlab('Number of significant cell types')
+median(number_celltypes $number_celltypes)
+number_celltypes$cat <- rep('scEssentials',nrow(number_celltypes))
+ggplot(number_celltypes, aes(x=reorder(genename, number_celltypes),y=number_celltypes, fill=number_celltypes>60))+  geom_bar(stat='identity')+
+  scale_fill_manual(values = c("#FF6846","#008EFC"))+ scale_y_continuous(breaks = c(0,1)) + theme_bw()
+
+ggplot(number_celltypes, aes(y=cat,x=number_celltypes))+
+  geom_violin(trim=FALSE,fill='#edae49')+geom_boxplot(width=0.3,alpha=0.6)+ theme_bw()+ylab('')+xlab('Number of cell types that each scEssentials showed significantly differential expression') 
+ggplot(number_celltypes, aes(number_celltypes, cat)) + 
+  ggdist::stat_halfeye(adjust = .5, width = .3, .width = 0, justification = -.3, point_colour = NA) + 
+  geom_boxplot(width = .1, outlier.shape = NA)  
+
+# what are the cell types?
+name_celltype1 <- unname(unlist(sapply(change_celltype1[intersect(no_change_genes,names(change_celltype1))], names)))
+name_celltype2 <- unname(unlist(sapply(change_celltype2[intersect(no_change_genes,names(change_celltype2))], names)))
+name_celltype3 <- unname(unlist(sapply(change_celltype3[intersect(no_change_genes,names(change_celltype3))], names)))
+name_celltype4 <- unname(unlist(sapply(change_celltype4[intersect(no_change_genes,names(change_celltype4))], names)))
+name_celltype5 <- unname(unlist(sapply(change_celltype5[intersect(no_change_genes,names(change_celltype5))], names)))
+name_celltype6 <- unname(unlist(sapply(change_celltype6[intersect(no_change_genes,names(change_celltype6))], names)))
+name_celltype7 <- unname(unlist(sapply(change_celltype7[intersect(no_change_genes,names(change_celltype7))], names)))
+name_celltype8 <- unname(unlist(sapply(change_celltype8[intersect(no_change_genes,names(change_celltype8))], names)))
+name_celltype9 <- unname(unlist(sapply(change_celltype9[intersect(no_change_genes,names(change_celltype9))], names)))
+name_celltype10 <- unname(unlist(sapply(change_celltype10[intersect(no_change_genes,names(change_celltype10))], names)))
+name_celltype11 <- unname(unlist(sapply(change_celltype11[intersect(no_change_genes,names(change_celltype11))], names)))
+name_celltype12 <- unname(unlist(sapply(change_celltype12[intersect(no_change_genes,names(change_celltype12))], names)))
+name_celltype13 <- unname(unlist(sapply(change_celltype13[intersect(no_change_genes,names(change_celltype13))], names)))
+name_celltype14 <- unname(unlist(sapply(change_celltype14[intersect(no_change_genes,names(change_celltype14))], names)))
+name_celltype15 <- unname(unlist(sapply(change_celltype15[intersect(no_change_genes,names(change_celltype15))], names)))
+name_celltype16 <- unname(unlist(sapply(change_celltype16[intersect(no_change_genes,names(change_celltype16))], names)))
+name_celltype17 <- unname(unlist(sapply(change_celltype17[intersect(no_change_genes,names(change_celltype17))], names)))
+name_celltype18 <- unname(unlist(sapply(change_celltype18[intersect(no_change_genes,names(change_celltype18))], names)))
+name_celltype19 <- unname(unlist(sapply(change_celltype19[intersect(no_change_genes,names(change_celltype19))], names)))
+name_celltype20 <- unname(unlist(sapply(change_celltype20[intersect(no_change_genes,names(change_celltype20))], names)))
+
+#name_celltypes <- unlist(sapply( ls(patt="name_celltype"), get) )
+
+name_celltypes <- unname(name_celltypes)
+name_celltypes_1 <- as.data.frame(table(name_celltypes))
+name_celltypes_1
+library(stringr)
+age_name <- sapply(str_split(name_celltypes_1$name_celltypes,":"), function(x)x[[1]]) 
+type_name <- sapply(str_split(name_celltypes_1$name_celltypes,":"), function(x)x[[2]]) 
+type_name <- substring(type_name, 9)
+name_celltypes_1$age <- age_name
+name_celltypes_1$celltype <- type_name 
+name_celltypes_2 <- aggregate(name_celltypes_1$Freq, by=list(name_celltypes_1$celltype),  FUN = 'sum' )
+colnames(name_celltypes_2) <- c("Celltype","Number of cell types")
+ggplot(name_celltypes_2, aes(x=reorder(Celltype, -`Number of cell types`), y=`Number of cell types`, fill=`Number of cell types`)) +
+  geom_bar(stat="identity")+theme_minimal()+xlab('')+ylab('Number of differentially expressed scEssentials with age')
+
+# top 10
+name_celltypes_2 <- name_celltypes_2[order(name_celltypes_2$`Number of cell types`, decreasing = T),]
+name_celltypes_3 <- name_celltypes_2[1:10,]
+name_celltypes_3$name <- c("thymocyte","neuron","skeletal muscle satellite cell","T cell","basal cell of epidermis",'epithelial cell',"oligodendrocyte","skeletal muscle satellite cell","enterocyte of epithelium of large intestine","fibroblast")
+name_celltypes_3$tissue <- c("Thymus","Brain_Non-Myeloid","Limb_Muscle","Trachea","Tongue",'Subcutaneous adipose',"Brain_Non-Myeloid","Diaphragm","Large_Intestine","Trachea")
+library(scales)
+ggplot(name_celltypes_3, aes(x=reorder(name, -`Number of cell types`), y=`Number of cell types`, fill=tissue)) +
+  geom_bar(stat="identity",position = 'dodge')+ scale_fill_brewer(palette="Dark2") +theme_minimal(base_size = 12)+xlab(" ")+ylab('Number of differentially expressed scEssentials in ageing')+ 
+    scale_x_discrete(labels = wrap_format(20))
+median(name_celltypes_3$`Number of cell types`)
+```
+
+```{r genes and essentiality score}
+xxx <- number_celltypes [match(names(no_change_genes_ES), number_celltypes$genename),] 
+cor.test(xxx$number_celltypes,log2(no_change_genes_ES)) 
+plot(xxx$number_celltypes,log2(no_change_genes_ES), xlab="Number of significant changed cell types",ylab="Essentiality score")
+no_change_score <- no_change_score[order(names(no_change_score))]
+ 
+wilcox.test(log2(change_genes_ES), log2(no_change_genes_ES))
+boxplot(log2(change_genes_ES), log2(no_change_genes_ES), names= c("significantly changed in age covariate","not significantly changed in age covariate"), ylab = 'Essentiality score')
+```
